@@ -1,0 +1,4 @@
+/** У строк хранения, удержаний и т. п. колонка «Название» пустая. */
+export function formatProductName(name: string): string {
+  return name || "(без названия)";
+}
