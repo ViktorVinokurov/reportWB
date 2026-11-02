@@ -131,7 +131,7 @@ class VariantMetrics(models.Model):
 
 
 class ProductCard(models.Model):
-    """Цвет и фото карточки WB. Кеш публичных данных витрины, общий для всех ИП."""
+    """Цвет и фото карточки WB. Кеш ответа WB API, nmId уникален на весь WB."""
 
     nm_id = models.BigIntegerField("Код номенклатуры", primary_key=True)
     color = models.CharField("Цвет", max_length=255, blank=True)

@@ -4,7 +4,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
-from reports import wb_api, wb_cards
+from reports import wb_api
 from reports.models import Owner, ProductCard, ProductMetrics, Report, VariantMetrics
 
 pytestmark = pytest.mark.django_db
@@ -478,45 +478,75 @@ def test_reupload_replaces_variants(client, owner, sample_report_path):
     assert VariantMetrics.objects.count() == count
 
 
-def test_cards_are_fetched_once_and_cached(client, owner, sample_report_path, monkeypatch):
-    upload(client, owner, sample_report_path)
-    requested = []
+def test_cards_are_fetched_once_and_cached(
+    client, owner_with_token, sample_report_path, monkeypatch
+):
+    upload(client, owner_with_token, sample_report_path)
+    requests = []
 
-    def fake_fetch(nm_ids):
-        requested.append(nm_ids)
-        return {nm_id: wb_cards.WbCard("черный", f"https://cdn/{nm_id}.webp") for nm_id in nm_ids}
+    def fake_fetch(token):
+        requests.append(token)
+        # Весь каталог продавца: кроме цветов этой позиции есть и чужие.
+        return {
+            578842131: wb_api.WbCard("черный", "https://cdn/578842131.webp"),
+            846318855: wb_api.WbCard("красный", ""),
+            1: wb_api.WbCard("синий", "https://cdn/1.webp"),
+        }
 
-    monkeypatch.setattr(wb_cards, "fetch_cards", fake_fetch)
+    monkeypatch.setattr(wb_api, "fetch_cards", fake_fetch)
 
-    first = report_part(client, owner, "cards", name=SWIMSUIT).json()
-    second = report_part(client, owner, "cards", name=SWIMSUIT).json()
+    first = report_part(client, owner_with_token, "cards", name=SWIMSUIT).json()
 
-    assert len(requested) == 1
-    assert len(first) == len(requested[0]) == 5
-    assert {card["nm_id"] for card in second} == {card["nm_id"] for card in first}
+    assert requests == ["wb-token"]
+    assert {card["nm_id"] for card in first} == {578842131, 846318855}
     assert {"nm_id": 578842131, "color": "черный", "photo_url": "https://cdn/578842131.webp"} in (
         first
     )
+    # Остальной каталог тоже закеширован.
+    assert ProductCard.objects.filter(nm_id=1).exists()
+
+    # Трёх цветов позиции в каталоге нет: их спросим снова, найденные остаются из кеша.
+    second = report_part(client, owner_with_token, "cards", name=SWIMSUIT).json()
+    assert len(requests) == 2
+    assert {card["nm_id"] for card in second} == {578842131, 846318855}
 
 
-def test_cards_not_found_are_skipped_and_retried(client, owner, sample_report_path, monkeypatch):
+def test_cards_do_not_call_wb_when_all_are_cached(
+    client, owner_with_token, sample_report_path, monkeypatch
+):
+    upload(client, owner_with_token, sample_report_path)
+    nm_ids = (578832269, 578842131, 668553020, 846318855, 846318856)
+    ProductCard.objects.bulk_create(ProductCard(nm_id=nm_id, color="черный") for nm_id in nm_ids)
+
+    def fail(token):
+        raise AssertionError("Всё уже в кеше")
+
+    monkeypatch.setattr(wb_api, "fetch_cards", fail)
+
+    response = report_part(client, owner_with_token, "cards", name=SWIMSUIT)
+
+    assert response.status_code == 200
+    assert len(response.json()) == 5
+
+
+def test_cards_without_token_ask_to_save_it(client, owner, sample_report_path):
     upload(client, owner, sample_report_path)
-    monkeypatch.setattr(wb_cards, "fetch_cards", lambda nm_ids: {})
 
     response = report_part(client, owner, "cards", name=SWIMSUIT)
 
-    assert response.status_code == 200
-    assert response.json() == []
-    assert ProductCard.objects.count() == 0
+    assert response.status_code == 400
+    assert "токен" in response.json()["owner_id"][0]
 
 
-def test_fetch_cards_finds_basket_host_and_reads_color(monkeypatch):
-    base = "https://basket-16.wbbasket.ru/vol2595/part259536/259536935"
-    responses = {
-        f"{base}/info/ru/card.json": {"nm_colors_names": "черный", "media": {"photo_count": 10}},
-    }
-    monkeypatch.setattr(wb_cards, "_get_json", responses.get)
+def test_cards_wb_error_returns_502(client, owner_with_token, sample_report_path, monkeypatch):
+    upload(client, owner_with_token, sample_report_path)
 
-    cards = wb_cards.fetch_cards({259536935, 1})
+    def fail(token, body):
+        raise wb_api.WbApiError("У токена нет доступа к карточкам товаров")
 
-    assert cards == {259536935: wb_cards.WbCard("черный", f"{base}/images/c246x328/1.webp")}
+    monkeypatch.setattr(wb_api, "_post_cards", fail)
+
+    response = report_part(client, owner_with_token, "cards", name=SWIMSUIT)
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "У токена нет доступа к карточкам товаров"}

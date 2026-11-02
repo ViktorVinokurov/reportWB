@@ -1,4 +1,3 @@
-import logging
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -8,7 +7,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Sum
 
-from . import wb_api, wb_cards
+from . import wb_api
 from .metrics import SUMMARY_FIELDS, BaseTotals, compute_position_summary, compute_summary
 from .models import Owner, ProductCard, ProductMetrics, Report, VariantMetrics
 from .parser import (
@@ -18,8 +17,6 @@ from .parser import (
     parse_api_rows,
     parse_report,
 )
-
-logger = logging.getLogger(__name__)
 
 BASE_FIELDS = ("orders_qty", "sales_qty", "sales_sum", "logistics", "tax_base")
 # Неделя отчёта WB — с понедельника по воскресенье.
@@ -98,6 +95,10 @@ def save_report(
 
 
 class ReportsNotFound(Exception):
+    pass
+
+
+class TokenRequired(Exception):
     pass
 
 
@@ -224,25 +225,33 @@ def color_rows(owner_id: UUID, report_date: date, name: str) -> list[dict]:
 
 
 def product_cards(owner_id: UUID, report_date: date, name: str) -> list[ProductCard]:
-    """Цвет и фото цветов позиции. Чего нет в кеше, берём у WB; ненайденное спросим в другой раз."""
+    """Цвет и фото цветов позиции. Чего нет в кеше, берём из карточек WB по токену ИП.
+
+    WB отдаёт каталог продавца целиком, поэтому кешируем все его карточки. Ненайденное
+    (например, карточку из корзины WB) спросим в другой раз.
+    """
     nm_ids = set(
         _variants(owner_id, report_date, name).filter(nm_id__gt=0).values_list("nm_id", flat=True)
     )
     cards = list(ProductCard.objects.filter(nm_id__in=nm_ids))
-    missing = nm_ids - {card.nm_id for card in cards}
-    if not missing:
+    if len(cards) == len(nm_ids):
         return cards
 
-    fetched = wb_cards.fetch_cards(missing)
-    if not_found := missing - fetched.keys():
-        logger.warning("Не найдены карточки WB: %s", sorted(not_found))
-    new_cards = [
-        ProductCard(nm_id=nm_id, color=card.color, photo_url=card.photo_url)
-        for nm_id, card in fetched.items()
-    ]
+    # nm_ids не пуст, значит у ИП есть этот отчёт и сам ИП существует.
+    token = Owner.objects.values_list("token", flat=True).get(pk=owner_id)
+    if not token:
+        raise TokenRequired(
+            "Чтобы видеть фото и цвет, сохраните токен WB для этого ИП в настройках"
+        )
     # Ту же карточку мог одновременно сохранить параллельный запрос.
-    ProductCard.objects.bulk_create(new_cards, ignore_conflicts=True)
-    return cards + new_cards
+    ProductCard.objects.bulk_create(
+        [
+            ProductCard(nm_id=nm_id, color=card.color, photo_url=card.photo_url)
+            for nm_id, card in wb_api.fetch_cards(token).items()
+        ],
+        ignore_conflicts=True,
+    )
+    return list(ProductCard.objects.filter(nm_id__in=nm_ids))
 
 
 def product_names(owner_id: UUID) -> list[str]:

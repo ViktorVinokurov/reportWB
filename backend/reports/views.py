@@ -151,14 +151,20 @@ class ReportColorsView(APIView):
 
 
 class ReportCardsView(APIView):
-    """Цвет и фото из карточек WB. Отдельный запрос: таблица не ждёт внешний CDN."""
+    """Цвет и фото из карточек WB. Отдельный запрос: таблица не ждёт ответа WB."""
 
     @extend_schema(
-        parameters=[OWNER_PARAMETER, PRODUCT_PARAMETER], responses=ProductCardSerializer(many=True)
+        parameters=[OWNER_PARAMETER, PRODUCT_PARAMETER],
+        responses={200: ProductCardSerializer(many=True), 502: None},
     )
     def get(self, request: Request, report_date: date) -> Response:
         owner_id, name = _owner_and_product(request)
-        cards = services.product_cards(owner_id, report_date, name)
+        try:
+            cards = services.product_cards(owner_id, report_date, name)
+        except services.TokenRequired as exc:
+            raise ValidationError({"owner_id": [str(exc)]}) from exc
+        except WbApiError as exc:
+            raise WbApiFailed(str(exc)) from exc
         return Response(ProductCardSerializer(cards, many=True).data)
 
 

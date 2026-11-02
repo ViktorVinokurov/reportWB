@@ -67,3 +67,59 @@ def test_post_turns_http_errors_into_messages(monkeypatch, code, message):
 
     with pytest.raises(wb_api.WbApiError, match=message):
         wb_api._post("token", {})
+
+
+def _card(nm_id, colors=("черный",), photo=True):
+    return {
+        "nmID": nm_id,
+        "characteristics": [
+            {"id": 1, "name": "Состав", "value": ["полиамид"]},
+            {"id": 14177449, "name": "Цвет", "value": list(colors)},
+        ],
+        "photos": [{"tm": f"https://cdn/{nm_id}/tm/1.webp"}] if photo else [],
+    }
+
+
+def test_fetch_cards_reads_color_and_small_photo(monkeypatch):
+    page = {
+        "cards": [_card(1, ("тауп", "кофейный")), _card(2, photo=False)],
+        "cursor": {"updatedAt": "2026-08-05T07:59:38Z", "nmID": 2, "total": 2},
+    }
+    monkeypatch.setattr(wb_api, "_post_cards", lambda token, body: page)
+
+    assert wb_api.fetch_cards("token") == {
+        1: wb_api.WbCard("тауп, кофейный", "https://cdn/1/tm/1.webp"),
+        2: wb_api.WbCard("черный", ""),
+    }
+
+
+def test_fetch_cards_without_color_characteristic(monkeypatch):
+    card = {"nmID": 1, "characteristics": [{"name": "Состав", "value": ["полиамид"]}]}
+    page = {"cards": [card], "cursor": {"total": 1}}
+    monkeypatch.setattr(wb_api, "_post_cards", lambda token, body: page)
+
+    assert wb_api.fetch_cards("token") == {1: wb_api.WbCard("", "")}
+
+
+def test_fetch_cards_follows_cursor_until_incomplete_page(monkeypatch):
+    pages = [
+        {
+            "cards": [_card(nm_id) for nm_id in range(100)],
+            "cursor": {"updatedAt": "2026-08-05T07:59:38Z", "nmID": 99, "total": 100},
+        },
+        {"cards": [_card(100)], "cursor": {"updatedAt": "2026-08-06", "nmID": 100, "total": 1}},
+    ]
+    requests = []
+
+    def fake_post(token, body):
+        requests.append(body["settings"]["cursor"])
+        return pages[len(requests) - 1]
+
+    monkeypatch.setattr(wb_api, "_post_cards", fake_post)
+    monkeypatch.setattr(wb_api.time, "sleep", lambda seconds: None)
+
+    assert len(wb_api.fetch_cards("token")) == 101
+    assert requests == [
+        {"limit": 100},
+        {"limit": 100, "updatedAt": "2026-08-05T07:59:38Z", "nmID": 99},
+    ]

@@ -36,7 +36,7 @@ function ColorPhoto({ card, isLoading }: { card?: ProductCard; isLoading: boolea
     );
   }
   return (
-    // Фото отдаёт CDN WB напрямую в браузер: оптимизатор next/image здесь не нужен.
+    // Миниатюра WB уже нужного размера и грузится браузером напрямую: next/image здесь не нужен.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={card.photo_url}
@@ -57,7 +57,11 @@ interface ColorsTableProps {
 export function ColorsTable({ ownerId, reportDate, position, columns }: ColorsTableProps) {
   const query = { ownerId, reportDate, name: position.name };
   const { data: colors = [], isLoading, error } = useGetProductColorsQuery(query);
-  const { data: cards = [], isLoading: cardsLoading } = useGetProductCardsQuery(query);
+  const {
+    data: cards = [],
+    isLoading: cardsLoading,
+    error: cardsError,
+  } = useGetProductCardsQuery(query);
 
   if (isLoading) return <div className="h-40 animate-pulse rounded-lg bg-muted" />;
   if (error) {
@@ -73,50 +77,55 @@ export function ColorsTable({ ownerId, reportDate, position, columns }: ColorsTa
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className={stickyCell}>Цвет и размер</TableHead>
-          <MetricHeads columns={columns} />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {colors.map((color) => {
-          const card = cards.find((item) => item.nm_id === color.nm_id);
-          return (
-            <Fragment key={color.nm_id}>
-              <TableRow>
-                <TableCell className={stickyCell}>
-                  <div className="flex items-center gap-3">
-                    <ColorPhoto card={card} isLoading={cardsLoading} />
-                    <div>
-                      <div className="font-medium">{card?.color || "Цвет не указан"}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {color.vendor_code} · {color.nm_id}
+    <>
+      {cardsError && (
+        <p className="text-sm text-muted-foreground">{getApiErrorMessage(cardsError)}</p>
+      )}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className={stickyCell}>Цвет и размер</TableHead>
+            <MetricHeads columns={columns} />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {colors.map((color) => {
+            const card = cards.find((item) => item.nm_id === color.nm_id);
+            return (
+              <Fragment key={color.nm_id}>
+                <TableRow>
+                  <TableCell className={stickyCell}>
+                    <div className="flex items-center gap-3">
+                      <ColorPhoto card={card} isLoading={cardsLoading} />
+                      <div>
+                        <div className="font-medium">{card?.color || "Цвет не указан"}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {color.vendor_code} · {color.nm_id}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </TableCell>
-                <MetricCells columns={columns} row={color} />
-              </TableRow>
-              {color.sizes.map((size) => (
-                <TableRow key={size.size} className="text-muted-foreground">
-                  <TableCell className={cn(stickyCell, "pl-14")}>
-                    {size.size || "(без размера)"}
                   </TableCell>
-                  <MetricCells columns={columns} row={size} />
+                  <MetricCells columns={columns} row={color} />
                 </TableRow>
-              ))}
-            </Fragment>
-          );
-        })}
-      </TableBody>
-      <TableFooter className="bg-card">
-        <TableRow>
-          <TableCell className={stickyCell}>Итого по позиции</TableCell>
-          <MetricCells columns={columns} row={position} />
-        </TableRow>
-      </TableFooter>
-    </Table>
+                {color.sizes.map((size) => (
+                  <TableRow key={size.size} className="text-muted-foreground">
+                    <TableCell className={cn(stickyCell, "pl-14")}>
+                      {size.size || "(без размера)"}
+                    </TableCell>
+                    <MetricCells columns={columns} row={size} />
+                  </TableRow>
+                ))}
+              </Fragment>
+            );
+          })}
+        </TableBody>
+        <TableFooter className="bg-card">
+          <TableRow>
+            <TableCell className={stickyCell}>Итого по позиции</TableCell>
+            <MetricCells columns={columns} row={position} />
+          </TableRow>
+        </TableFooter>
+      </Table>
+    </>
   );
 }

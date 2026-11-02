@@ -59,7 +59,7 @@ export function OwnerTokenForm({ ownerId }: { ownerId: string | undefined }) {
         <Input
           id="owner-token"
           type="password"
-          placeholder={owner?.has_token ? "Новый токен" : "Токен категории «Финансы»"}
+          placeholder={owner?.has_token ? "Новый токен" : "Токен категорий «Финансы» и «Контент»"}
           autoComplete="off"
           disabled={!owner}
           aria-invalid={Boolean(errors.token)}
