@@ -115,12 +115,15 @@ def import_weekly_reports(*, owner: Owner, weeks: list[dict]) -> tuple[list[Repo
     rows = wb_api.fetch_weekly_rows(owner.token, min(starts), max(starts) + WEEK_END)
     rows_by_week = defaultdict(list)
     for row in rows:
-        rows_by_week[row["dateFrom"], row["dateTo"]].append(row)
+        # Не сравниваем период с понедельником и воскресеньем: на стыке месяцев WB делит
+        # неделю на два отчёта, например 26.10–31.10 и 01.11–01.11.
+        report_start = date.fromisoformat(row["dateFrom"])
+        rows_by_week[report_start - timedelta(days=report_start.weekday())].append(row)
 
     found, missing = [], []
     for week in weeks:
         date_from = week["date_from"]
-        week_rows = rows_by_week.get((date_from.isoformat(), (date_from + WEEK_END).isoformat()))
+        week_rows = rows_by_week.get(date_from)
         if week_rows:
             found.append((week, week_rows))
         else:

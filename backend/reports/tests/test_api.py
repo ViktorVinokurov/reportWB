@@ -169,6 +169,52 @@ def test_wb_import_loads_selected_weeks_with_one_request(
     assert Report.objects.get(report_date="2026-10-12").source_filename == "WB API: отчёт №1"
 
 
+def test_wb_import_joins_week_split_at_month_boundary(
+    client, owner_with_token, sample_api_rows, monkeypatch
+):
+    # На стыке месяцев WB делит неделю 26.10–01.11 на отчёты 26–31.10 и 01–01.11.
+    october = [
+        {**row, "reportId": 1, "dateFrom": "2026-10-26", "dateTo": "2026-10-31"}
+        for row in sample_api_rows
+    ]
+    november = [
+        {**row, "reportId": 2, "dateFrom": "2026-11-01", "dateTo": "2026-11-01"}
+        for row in sample_api_rows
+    ]
+    monkeypatch.setattr(wb_api, "_post", lambda token, body: october + november)
+
+    response = wb_import(client, owner_with_token, wb_week("2026-10-26"))
+
+    assert response.status_code == 201, response.data
+    result = response.json()
+    assert result["missing_weeks"] == []
+    [row] = result["reports"]
+    assert row["report_date"] == "2026-11-02"
+    # Обе части складываются в один отчёт недели.
+    assert row["orders_qty"] == 2 * 133
+    assert row["storage"] == 2 * 788.21
+    assert row["advertising"] == 2 * 12975
+    report = Report.objects.get()
+    assert report.rows_count == 2 * 529
+    assert report.source_filename == "WB API: отчёт №1, отчёт №2"
+
+
+def test_wb_import_ignores_neighbour_week_with_split_report(
+    client, owner_with_token, sample_api_rows, monkeypatch
+):
+    # Запрос за 19.10–01.11 вернул и часть следующей недели, но отмечена только 19–25.10.
+    november = [
+        {**row, "reportId": 2, "dateFrom": "2026-11-01", "dateTo": "2026-11-01"}
+        for row in sample_api_rows
+    ]
+    monkeypatch.setattr(wb_api, "_post", lambda token, body: sample_api_rows + november)
+
+    response = wb_import(client, owner_with_token, wb_week("2026-10-19"))
+
+    assert response.status_code == 201, response.data
+    assert response.json()["reports"][0]["orders_qty"] == 133
+
+
 @pytest.mark.parametrize(
     "weeks",
     [
