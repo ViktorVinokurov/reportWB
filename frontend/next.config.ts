@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
+  // Для Docker-образа: сервер с минимальным набором node_modules.
+  output: "standalone",
   turbopack: {
     root: __dirname,
     rules: {
