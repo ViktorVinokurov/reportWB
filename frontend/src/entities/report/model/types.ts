@@ -41,9 +41,17 @@ export interface ColorRow extends MetricValues {
   sizes: SizeRow[];
 }
 
+/** Значение фильтра по цвету: цвет выбранных названий и его размеры. Контракт GET /api/reports/filter-colors. */
+export interface FilterColor {
+  nm_id: number;
+  vendor_code: string;
+  sizes: string[];
+}
+
 /** Цвет и фото из карточки WB. Контракт GET /api/reports/<дата>/cards. */
 export interface ProductCard {
   nm_id: number;
   color: string;
   photo_url: string;
+  preview_url: string;
 }

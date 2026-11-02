@@ -5,10 +5,14 @@ import { useState } from "react";
 import { useGetOwnersQuery } from "@/entities/owner";
 import { useGetSummaryQuery } from "@/entities/report";
 import {
-  allSelected,
+  ColorFilter,
+  filtersReset,
   ProductNameFilter,
+  selectSelectedColors,
   selectSelectedNames,
-} from "@/features/filter-by-product-name";
+  selectSelectedSizes,
+  SizeFilter,
+} from "@/features/filter-by-product";
 import { OwnerSwitcher, useSelectedOwnerId } from "@/features/select-owner";
 import { getApiErrorMessage } from "@/shared/api";
 import { useAppDispatch, useAppSelector } from "@/shared/lib/store";
@@ -32,10 +36,14 @@ export function ReportSummaryPage() {
   const { isLoading: ownersLoading, error: ownersError } = useGetOwnersQuery();
   const ownerId = useSelectedOwnerId();
   const selectedNames = useAppSelector(selectSelectedNames);
-  const nothingSelected = selectedNames?.length === 0;
+  const selectedColors = useAppSelector(selectSelectedColors);
+  const selectedSizes = useAppSelector(selectSelectedSizes);
+  const nothingSelected = [selectedNames, selectedColors, selectedSizes].some(
+    (selected) => selected?.length === 0,
+  );
   // Таблица и чарт получают одни и те же строки — чарт всегда отражает отфильтрованную таблицу.
   const { data: rows = [], isLoading, error } = useGetSummaryQuery(
-    { ownerId: ownerId ?? "", names: selectedNames },
+    { ownerId: ownerId ?? "", names: selectedNames, nmIds: selectedColors, sizes: selectedSizes },
     { skip: !ownerId || nothingSelected },
   );
   const [openedDate, setOpenedDate] = useState<string | null>(null);
@@ -49,7 +57,7 @@ export function ReportSummaryPage() {
   } else if (!ownerId) {
     content = <Message>ИП пока нет. Добавьте ИП в настройках (шестерёнка в шапке), затем загрузите отчёт.</Message>;
   } else if (nothingSelected) {
-    content = <Message>Выберите хотя бы одно название</Message>;
+    content = <Message>Выберите хотя бы одно значение в каждом фильтре</Message>;
   } else if (isLoading) {
     content = skeleton;
   } else if (error) {
@@ -83,14 +91,16 @@ export function ReportSummaryPage() {
       <main className="mx-auto grid w-full max-w-screen-2xl gap-6 px-4 py-6 sm:px-6">
         {ownerId && (
           <div className="flex flex-wrap items-center gap-3">
-            {/* У другого ИП свои названия и отчёты — фильтр сбрасываем на «все», детализацию закрываем. */}
+            {/* У другого ИП свои названия и отчёты — фильтры сбрасываем на «все», детализацию закрываем. */}
             <OwnerSwitcher
               onOwnerChange={() => {
-                dispatch(allSelected());
+                dispatch(filtersReset());
                 setOpenedDate(null);
               }}
             />
             <ProductNameFilter ownerId={ownerId} />
+            <ColorFilter ownerId={ownerId} />
+            <SizeFilter ownerId={ownerId} />
           </div>
         )}
         {content}

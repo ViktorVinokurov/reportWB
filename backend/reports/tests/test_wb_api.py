@@ -76,7 +76,11 @@ def _card(nm_id, colors=("черный",), photo=True):
             {"id": 1, "name": "Состав", "value": ["полиамид"]},
             {"id": 14177449, "name": "Цвет", "value": list(colors)},
         ],
-        "photos": [{"tm": f"https://cdn/{nm_id}/tm/1.webp"}] if photo else [],
+        "photos": (
+            [{"tm": f"https://cdn/{nm_id}/tm.webp", "c516x688": f"https://cdn/{nm_id}/big.webp"}]
+            if photo
+            else []
+        ),
     }
 
 
@@ -88,8 +92,8 @@ def test_fetch_cards_reads_color_and_small_photo(monkeypatch):
     monkeypatch.setattr(wb_api, "_post_cards", lambda token, body: page)
 
     assert wb_api.fetch_cards("token") == {
-        1: wb_api.WbCard("тауп, кофейный", "https://cdn/1/tm/1.webp"),
-        2: wb_api.WbCard("черный", ""),
+        1: wb_api.WbCard("тауп, кофейный", "https://cdn/1/tm.webp", "https://cdn/1/big.webp"),
+        2: wb_api.WbCard("черный", "", ""),
     }
 
 
@@ -98,7 +102,7 @@ def test_fetch_cards_without_color_characteristic(monkeypatch):
     page = {"cards": [card], "cursor": {"total": 1}}
     monkeypatch.setattr(wb_api, "_post_cards", lambda token, body: page)
 
-    assert wb_api.fetch_cards("token") == {1: wb_api.WbCard("", "")}
+    assert wb_api.fetch_cards("token") == {1: wb_api.WbCard("", "", "")}
 
 
 def test_fetch_cards_follows_cursor_until_incomplete_page(monkeypatch):

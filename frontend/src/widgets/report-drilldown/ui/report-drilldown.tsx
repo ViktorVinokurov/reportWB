@@ -10,7 +10,11 @@ import {
   type SummaryRow,
   useGetReportProductsQuery,
 } from "@/entities/report";
-import { selectSelectedNames } from "@/features/filter-by-product-name";
+import {
+  selectSelectedColors,
+  selectSelectedNames,
+  selectSelectedSizes,
+} from "@/features/filter-by-product";
 import { selectHiddenColumns, TableColumnsMenu } from "@/features/toggle-table-columns";
 import { getApiErrorMessage } from "@/shared/api";
 import { formatIsoDate } from "@/shared/lib/format";
@@ -35,13 +39,20 @@ export function ReportDrilldown({ ownerId, summary, onBack }: ReportDrilldownPro
   const columns = METRICS.filter((metric) => !hiddenColumns.includes(metric.key));
 
   const selectedNames = useAppSelector(selectSelectedNames);
-  const { data, isLoading, error } = useGetReportProductsQuery({ ownerId, reportDate });
+  const nmIds = useAppSelector(selectSelectedColors);
+  const sizes = useAppSelector(selectSelectedSizes);
+  const { data, isLoading, error } = useGetReportProductsQuery({
+    ownerId,
+    reportDate,
+    nmIds,
+    sizes,
+  });
   const products: ProductRow[] = (data ?? []).filter(
     (product) => selectedNames === null || selectedNames.includes(product.name),
   );
 
   const [openedName, setOpenedName] = useState<string | null>(null);
-  // Если позицию сняли в фильтре, возвращаемся к списку позиций.
+  // Если позиция не прошла фильтры, возвращаемся к списку позиций.
   const opened = products.find((product) => product.name === openedName);
 
   let content: React.ReactNode;
@@ -51,7 +62,14 @@ export function ReportDrilldown({ ownerId, summary, onBack }: ReportDrilldownPro
     content = <p className="py-8 text-center text-muted-foreground">{getApiErrorMessage(error)}</p>;
   } else if (opened) {
     content = (
-      <ColorsTable ownerId={ownerId} reportDate={reportDate} position={opened} columns={columns} />
+      <ColorsTable
+        ownerId={ownerId}
+        reportDate={reportDate}
+        position={opened}
+        columns={columns}
+        nmIds={nmIds}
+        sizes={sizes}
+      />
     );
   } else {
     content = (

@@ -1,6 +1,6 @@
 import { combineSlices, configureStore } from "@reduxjs/toolkit";
 
-import { productFilterSlice } from "@/features/filter-by-product-name";
+import { productFilterSlice } from "@/features/filter-by-product";
 import { ownerSelectionSlice } from "@/features/select-owner";
 import { chartDatesSlice } from "@/features/toggle-chart-dates";
 import { chartSeriesSlice } from "@/features/toggle-chart-series";

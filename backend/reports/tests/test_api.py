@@ -399,6 +399,8 @@ def test_delete_missing_report_returns_404(client, owner, report_date):
     [
         "/api/reports/summary",
         "/api/reports/product-names",
+        "/api/reports/filter-colors",
+        "/api/reports/filter-cards",
         "/api/reports/2026-10-25",
         "/api/reports/2026-10-25/products",
         "/api/reports/2026-10-25/colors",
@@ -534,9 +536,9 @@ def test_cards_are_fetched_once_and_cached(
         requests.append(token)
         # Весь каталог продавца: кроме цветов этой позиции есть и чужие.
         return {
-            578842131: wb_api.WbCard("черный", "https://cdn/578842131.webp"),
-            846318855: wb_api.WbCard("красный", ""),
-            1: wb_api.WbCard("синий", "https://cdn/1.webp"),
+            578842131: wb_api.WbCard("черный", "https://cdn/tm.webp", "https://cdn/big.webp"),
+            846318855: wb_api.WbCard("красный", "", ""),
+            1: wb_api.WbCard("синий", "", ""),
         }
 
     monkeypatch.setattr(wb_api, "fetch_cards", fake_fetch)
@@ -545,9 +547,12 @@ def test_cards_are_fetched_once_and_cached(
 
     assert requests == ["wb-token"]
     assert {card["nm_id"] for card in first} == {578842131, 846318855}
-    assert {"nm_id": 578842131, "color": "черный", "photo_url": "https://cdn/578842131.webp"} in (
-        first
-    )
+    assert {
+        "nm_id": 578842131,
+        "color": "черный",
+        "photo_url": "https://cdn/tm.webp",
+        "preview_url": "https://cdn/big.webp",
+    } in first
     # Остальной каталог тоже закеширован.
     assert ProductCard.objects.filter(nm_id=1).exists()
 
@@ -596,3 +601,131 @@ def test_cards_wb_error_returns_502(client, owner_with_token, sample_report_path
 
     assert response.status_code == 502
     assert response.json() == {"detail": "У токена нет доступа к карточкам товаров"}
+
+
+BLACK = 578842131
+
+
+def test_summary_filter_by_color_and_size_matches_drilldown(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+    colors = report_part(client, owner, "colors", name=SWIMSUIT).json()
+    black = next(color for color in colors if color["nm_id"] == BLACK)
+    small = next(size for size in black["sizes"] if size["size"] == "XS-S")
+
+    by_color = summary(client, owner, nm_id=[BLACK]).json()[0]
+    by_size = summary(client, owner, nm_id=[BLACK], size=["XS-S"]).json()[0]
+
+    for field in ("orders_qty", "sales_qty", "sales_sum", "logistics"):
+        assert by_color[field] == black[field]
+        assert by_size[field] == small[field]
+    # Реклама и хранение берутся полностью, как и при фильтре по названиям.
+    assert by_color["advertising"] == 1000
+    assert by_color["storage"] == 500
+    assert by_color["profit"] == round(by_color["sales_sum"] - by_color["logistics"] - 1500, 2)
+
+
+def test_summary_filters_are_combined(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+    names = client.get("/api/reports/product-names", {"owner_id": str(owner.id)}).json()
+    other_name = next(name for name in names if name and name != SWIMSUIT)
+
+    empty = summary(client, owner, name=[other_name], nm_id=[BLACK]).json()[0]
+    assert empty["sales_qty"] == 0
+    assert empty["orders_qty"] == 0
+
+    same = summary(client, owner, name=[SWIMSUIT], nm_id=[BLACK]).json()[0]
+    assert same == summary(client, owner, nm_id=[BLACK]).json()[0]
+
+
+def test_summary_rejects_invalid_color(client, owner):
+    response = summary(client, owner, nm_id=["не-число"])
+
+    assert response.status_code == 400
+    assert "nm_id" in response.json()
+
+
+def test_summary_color_filter_keeps_report_without_variants(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+    VariantMetrics.objects.all().delete()
+
+    # Отчёт, загруженный до появления детализации: фильтр по названиям работает как раньше.
+    assert summary(client, owner, name=[SWIMSUIT]).json()[0]["sales_qty"] > 0
+    assert summary(client, owner, nm_id=[BLACK]).json()[0]["sales_qty"] == 0
+
+
+def test_products_and_colors_follow_variant_filter(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+    filtered = summary(client, owner, nm_id=[BLACK], size=["XS-S"]).json()[0]
+
+    products = report_part(client, owner, "products", nm_id=[BLACK], size=["XS-S"]).json()
+    assert [product["name"] for product in products] == [SWIMSUIT]
+    assert products[0]["sales_sum"] == filtered["sales_sum"]
+
+    colors = report_part(
+        client, owner, "colors", name=SWIMSUIT, nm_id=[BLACK], size=["XS-S"]
+    ).json()
+    assert [color["nm_id"] for color in colors] == [BLACK]
+    assert [size["size"] for size in colors[0]["sizes"]] == ["XS-S"]
+    assert colors[0]["sales_sum"] == filtered["sales_sum"]
+
+
+def test_products_with_unmatched_filter_are_empty_not_missing(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+
+    response = report_part(client, owner, "products", nm_id=[1])
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def filter_part(client, owner, part, **params):
+    return client.get(f"/api/reports/filter-{part}", {"owner_id": str(owner.id), **params})
+
+
+def test_filter_colors_are_limited_by_names(client, owner, other_owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+
+    swimsuit = filter_part(client, owner, "colors", name=[SWIMSUIT]).json()
+    assert {color["nm_id"] for color in swimsuit} == {
+        578832269,
+        578842131,
+        668553020,
+        846318855,
+        846318856,
+    }
+    black = next(color for color in swimsuit if color["nm_id"] == BLACK)
+    assert black == {"nm_id": BLACK, "vendor_code": "слитный-черный", "sizes": ["M-L", "XS-S"]}
+
+    everything = filter_part(client, owner, "colors").json()
+    assert len(everything) > len(swimsuit)
+    assert all(color["nm_id"] > 0 for color in everything)
+
+    assert filter_part(client, owner, "colors", name=["нет такого"]).json() == []
+    assert filter_part(client, other_owner, "colors").json() == []
+
+
+def test_filter_cards_use_cache_of_selected_names(
+    client, owner_with_token, sample_report_path, monkeypatch
+):
+    upload(client, owner_with_token, sample_report_path)
+    nm_ids = (578832269, 578842131, 668553020, 846318855, 846318856)
+    ProductCard.objects.bulk_create(ProductCard(nm_id=nm_id, color="черный") for nm_id in nm_ids)
+
+    def fail(token):
+        raise AssertionError("Всё уже в кеше")
+
+    monkeypatch.setattr(wb_api, "fetch_cards", fail)
+
+    response = filter_part(client, owner_with_token, "cards", name=[SWIMSUIT])
+
+    assert response.status_code == 200
+    assert {card["nm_id"] for card in response.json()} == set(nm_ids)
+
+
+def test_filter_cards_without_token_ask_to_save_it(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+
+    response = filter_part(client, owner, "cards")
+
+    assert response.status_code == 400
+    assert "токен" in response.json()["owner_id"][0]

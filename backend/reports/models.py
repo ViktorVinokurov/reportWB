@@ -136,6 +136,7 @@ class ProductCard(models.Model):
     nm_id = models.BigIntegerField("Код номенклатуры", primary_key=True)
     color = models.CharField("Цвет", max_length=255, blank=True)
     photo_url = models.URLField("Фото", blank=True)
+    preview_url = models.URLField("Фото для превью", blank=True)
 
     class Meta:
         verbose_name = "Карточка товара"

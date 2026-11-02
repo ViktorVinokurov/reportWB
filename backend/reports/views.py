@@ -15,6 +15,7 @@ from .models import Owner
 from .parser import ReportParseError
 from .serializers import (
     ColorRowSerializer,
+    FilterColorSerializer,
     OwnerQuerySerializer,
     OwnerSerializer,
     OwnerTokenSerializer,
@@ -23,6 +24,7 @@ from .serializers import (
     ProductRowSerializer,
     ReportUploadSerializer,
     SummaryRowSerializer,
+    VariantFilterSerializer,
     WbImportResultSerializer,
     WbImportSerializer,
 )
@@ -40,6 +42,26 @@ OWNER_PARAMETER = OpenApiParameter(
 PRODUCT_PARAMETER = OpenApiParameter(
     "name", OpenApiTypes.STR, required=True, description="Позиция — значение колонки «Название»"
 )
+NAMES_PARAMETER = OpenApiParameter(
+    "name",
+    OpenApiTypes.STR,
+    many=True,
+    description="Фильтр по колонке «Название» (можно несколько). Без параметра — все названия.",
+)
+VARIANT_PARAMETERS = [
+    OpenApiParameter(
+        "nm_id",
+        OpenApiTypes.INT64,
+        many=True,
+        description="Фильтр по цвету — коду номенклатуры (можно несколько). Без параметра — все.",
+    ),
+    OpenApiParameter(
+        "size",
+        OpenApiTypes.STR,
+        many=True,
+        description="Фильтр по размеру (можно несколько). Без параметра — все.",
+    ),
+]
 
 
 def _owner_id(request: Request) -> UUID:
@@ -52,6 +74,18 @@ def _owner_and_product(request: Request) -> tuple[UUID, str]:
     serializer = ProductQuerySerializer(data=request.query_params)
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["owner_id"], serializer.validated_data["name"]
+
+
+def _names(request: Request) -> list[str] | None:
+    return request.query_params.getlist("name") if "name" in request.query_params else None
+
+
+def _variant_filter(request: Request) -> services.VariantFilter:
+    serializer = VariantFilterSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    return services.VariantFilter(
+        nm_ids=serializer.validated_data.get("nm_id"), sizes=serializer.validated_data.get("size")
+    )
 
 
 class OwnerListView(generics.ListCreateAPIView):
@@ -129,11 +163,14 @@ class ReportProductsView(APIView):
     """Первый уровень детализации отчёта: позиции (значения «Названия»)."""
 
     @extend_schema(
-        parameters=[OWNER_PARAMETER], responses={200: ProductRowSerializer(many=True), 404: None}
+        parameters=[OWNER_PARAMETER, *VARIANT_PARAMETERS],
+        responses={200: ProductRowSerializer(many=True), 404: None},
     )
     def get(self, request: Request, report_date: date) -> Response:
-        rows = services.product_rows(_owner_id(request), report_date)
-        if not rows:
+        variant_filter = _variant_filter(request)
+        rows = services.product_rows(_owner_id(request), report_date, variant_filter)
+        # С фильтром пусто и тогда, когда отчёт есть, но таких цветов и размеров в нём нет.
+        if not rows and variant_filter == services.NO_VARIANT_FILTER:
             raise NotFound("Отчёт на эту дату не найден")
         return Response(ProductRowSerializer(rows, many=True).data)
 
@@ -142,11 +179,12 @@ class ReportColorsView(APIView):
     """Второй уровень детализации: цвета позиции и их размеры."""
 
     @extend_schema(
-        parameters=[OWNER_PARAMETER, PRODUCT_PARAMETER], responses=ColorRowSerializer(many=True)
+        parameters=[OWNER_PARAMETER, PRODUCT_PARAMETER, *VARIANT_PARAMETERS],
+        responses=ColorRowSerializer(many=True),
     )
     def get(self, request: Request, report_date: date) -> Response:
         owner_id, name = _owner_and_product(request)
-        rows = services.color_rows(owner_id, report_date, name)
+        rows = services.color_rows(owner_id, report_date, name, _variant_filter(request))
         return Response(ColorRowSerializer(rows, many=True).data)
 
 
@@ -170,23 +208,40 @@ class ReportCardsView(APIView):
 
 class SummaryView(APIView):
     @extend_schema(
-        parameters=[
-            OWNER_PARAMETER,
-            OpenApiParameter(
-                "name",
-                OpenApiTypes.STR,
-                many=True,
-                description="Фильтр по колонке «Название» (можно несколько). "
-                "Без параметра — все названия.",
-            ),
-        ],
+        parameters=[OWNER_PARAMETER, NAMES_PARAMETER, *VARIANT_PARAMETERS],
         responses=SummaryRowSerializer(many=True),
     )
     def get(self, request: Request) -> Response:
-        owner_id = _owner_id(request)
-        names = request.query_params.getlist("name") if "name" in request.query_params else None
-        rows = services.build_summary(owner_id, names)
+        rows = services.build_summary(_owner_id(request), _names(request), _variant_filter(request))
         return Response(SummaryRowSerializer(rows, many=True).data)
+
+
+class FilterColorsView(APIView):
+    """Значения фильтров по цвету и размеру: цвета выбранных названий и их размеры."""
+
+    @extend_schema(
+        parameters=[OWNER_PARAMETER, NAMES_PARAMETER], responses=FilterColorSerializer(many=True)
+    )
+    def get(self, request: Request) -> Response:
+        rows = services.filter_colors(_owner_id(request), _names(request))
+        return Response(FilterColorSerializer(rows, many=True).data)
+
+
+class FilterCardsView(APIView):
+    """Названия цветов для фильтра. Отдельный запрос: список значений не ждёт ответа WB."""
+
+    @extend_schema(
+        parameters=[OWNER_PARAMETER, NAMES_PARAMETER],
+        responses={200: ProductCardSerializer(many=True), 502: None},
+    )
+    def get(self, request: Request) -> Response:
+        try:
+            cards = services.filter_cards(_owner_id(request), _names(request))
+        except services.TokenRequired as exc:
+            raise ValidationError({"owner_id": [str(exc)]}) from exc
+        except WbApiError as exc:
+            raise WbApiFailed(str(exc)) from exc
+        return Response(ProductCardSerializer(cards, many=True).data)
 
 
 class ProductNamesView(APIView):

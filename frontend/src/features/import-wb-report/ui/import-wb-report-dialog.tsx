@@ -73,7 +73,7 @@ export function ImportWbReportDialog({ defaultOwnerId }: { defaultOwnerId?: stri
   const noToken = owner !== undefined && !owner.has_token;
   // Загруженные недели — те, у которых уже есть отчёт на день после воскресенья.
   const { data: rows = [] } = useGetSummaryQuery(
-    { ownerId: ownerId ?? "", names: null },
+    { ownerId: ownerId ?? "", names: null, nmIds: null, sizes: null },
     { skip: !ownerId },
   );
   const loadedDates = new Set(rows.map((row) => row.report_date));

@@ -41,6 +41,7 @@ class WbApiError(Exception):
 class WbCard(NamedTuple):
     color: str
     photo_url: str
+    preview_url: str
 
 
 def _detail(exc: urllib.error.HTTPError) -> str:
@@ -114,8 +115,12 @@ def _parse_card(card: dict[str, Any]) -> WbCard:
         ),
         [],
     )
-    photos = card.get("photos", [])
-    return WbCard(color=", ".join(colors), photo_url=photos[0]["tm"] if photos else "")
+    photo = next(iter(card.get("photos", [])), {})
+    return WbCard(
+        color=", ".join(colors),
+        photo_url=photo.get("tm", ""),
+        preview_url=photo.get("c516x688", ""),
+    )
 
 
 def fetch_cards(token: str) -> dict[int, WbCard]:

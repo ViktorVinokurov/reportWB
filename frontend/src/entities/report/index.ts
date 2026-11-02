@@ -1,4 +1,6 @@
 export {
+  useGetFilterCardsQuery,
+  useGetFilterColorsQuery,
   useGetProductCardsQuery,
   useGetProductColorsQuery,
   useGetProductNamesQuery,
@@ -6,9 +8,10 @@ export {
   useGetSummaryQuery,
 } from "./api/report-api";
 export { METRICS, type MetricDefinition } from "./model/metrics";
-export { formatProductName } from "./model/product-name";
+export { formatProductName, formatSize } from "./model/product-name";
 export type {
   ColorRow,
+  FilterColor,
   MetricKey,
   MetricValues,
   ProductCard,

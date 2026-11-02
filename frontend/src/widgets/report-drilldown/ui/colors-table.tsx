@@ -2,6 +2,7 @@ import { ImageOffIcon } from "lucide-react";
 import { Fragment } from "react";
 
 import {
+  formatSize,
   type MetricDefinition,
   MetricCells,
   MetricHeads,
@@ -12,6 +13,7 @@ import {
 } from "@/entities/report";
 import { getApiErrorMessage } from "@/shared/api";
 import { cn } from "@/shared/lib/utils";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/shared/ui/hover-card";
 import {
   Table,
   TableBody,
@@ -35,16 +37,34 @@ function ColorPhoto({ card, isLoading }: { card?: ProductCard; isLoading: boolea
       </div>
     );
   }
+  // Фото WB уже нужных размеров и грузятся браузером напрямую: next/image здесь не нужен.
+  /* eslint-disable @next/next/no-img-element */
   return (
-    // Миниатюра WB уже нужного размера и грузится браузером напрямую: next/image здесь не нужен.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={card.photo_url}
-      alt={card.color}
-      loading="lazy"
-      className={cn(photoBox, "bg-muted object-cover")}
-    />
+    <HoverCard openDelay={100} closeDelay={0}>
+      <HoverCardTrigger asChild>
+        <img
+          src={card.photo_url}
+          alt={card.color}
+          loading="lazy"
+          className={cn(photoBox, "bg-muted object-cover")}
+        />
+      </HoverCardTrigger>
+      {/* Портал: таблица обрезает всё, что выходит за её края. Большое фото грузится при наведении. */}
+      <HoverCardContent
+        side="right"
+        align="start"
+        collisionPadding={8}
+        className="pointer-events-none w-auto p-1"
+      >
+        <img
+          src={card.preview_url}
+          alt={card.color}
+          className="aspect-[3/4] w-64 rounded bg-muted object-cover"
+        />
+      </HoverCardContent>
+    </HoverCard>
   );
+  /* eslint-enable @next/next/no-img-element */
 }
 
 interface ColorsTableProps {
@@ -52,11 +72,24 @@ interface ColorsTableProps {
   reportDate: string;
   position: ProductRow;
   columns: readonly MetricDefinition[];
+  nmIds: number[] | null;
+  sizes: string[] | null;
 }
 
-export function ColorsTable({ ownerId, reportDate, position, columns }: ColorsTableProps) {
+export function ColorsTable({
+  ownerId,
+  reportDate,
+  position,
+  columns,
+  nmIds,
+  sizes,
+}: ColorsTableProps) {
   const query = { ownerId, reportDate, name: position.name };
-  const { data: colors = [], isLoading, error } = useGetProductColorsQuery(query);
+  const {
+    data: colors = [],
+    isLoading,
+    error,
+  } = useGetProductColorsQuery({ ...query, nmIds, sizes });
   const {
     data: cards = [],
     isLoading: cardsLoading,
@@ -110,7 +143,7 @@ export function ColorsTable({ ownerId, reportDate, position, columns }: ColorsTa
                 {color.sizes.map((size) => (
                   <TableRow key={size.size} className="text-muted-foreground">
                     <TableCell className={cn(stickyCell, "pl-14")}>
-                      {size.size || "(без размера)"}
+                      {formatSize(size.size)}
                     </TableCell>
                     <MetricCells columns={columns} row={size} />
                   </TableRow>

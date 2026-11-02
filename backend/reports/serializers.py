@@ -40,6 +40,13 @@ class ProductQuerySerializer(OwnerQuerySerializer):
     name = serializers.CharField()
 
 
+class VariantFilterSerializer(serializers.Serializer):
+    """Фильтр по цветам (nmId) и размерам. Нет параметра — нет фильтра."""
+
+    nm_id = serializers.ListField(child=serializers.IntegerField(), required=False)
+    size = serializers.ListField(child=serializers.CharField(allow_blank=True), required=False)
+
+
 class ReportUploadSerializer(serializers.Serializer):
     owner_id = serializers.PrimaryKeyRelatedField(
         queryset=Owner.objects.all(), pk_field=serializers.UUIDField()
@@ -132,10 +139,16 @@ class ColorRowSerializer(PositionMetricsSerializer):
     sizes = SizeRowSerializer(many=True)
 
 
+class FilterColorSerializer(serializers.Serializer):
+    nm_id = serializers.IntegerField()
+    vendor_code = serializers.CharField()
+    sizes = serializers.ListField(child=serializers.CharField())
+
+
 class ProductCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductCard
-        fields = ["nm_id", "color", "photo_url"]
+        fields = ["nm_id", "color", "photo_url", "preview_url"]
 
 
 class WbImportResultSerializer(serializers.Serializer):

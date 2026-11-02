@@ -1,6 +1,7 @@
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import NamedTuple
 from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
@@ -21,6 +22,23 @@ from .parser import (
 BASE_FIELDS = ("orders_qty", "sales_qty", "sales_sum", "logistics", "tax_base")
 # Неделя отчёта WB — с понедельника по воскресенье.
 WEEK_END = timedelta(days=6)
+
+
+class VariantFilter(NamedTuple):
+    """Фильтр по цветам (nmId) и размерам. None — без фильтра."""
+
+    nm_ids: list[int] | None = None
+    sizes: list[str] | None = None
+
+    def apply(self, variants):
+        if self.nm_ids is not None:
+            variants = variants.filter(nm_id__in=self.nm_ids)
+        if self.sizes is not None:
+            variants = variants.filter(size__in=self.sizes)
+        return variants
+
+
+NO_VARIANT_FILTER = VariantFilter()
 
 
 def _parse_files(files: list[UploadedFile]) -> ParsedReport:
@@ -156,21 +174,36 @@ def delete_report(owner_id: UUID, report_date: date) -> bool:
     return deleted > 0
 
 
-def build_summary(owner_id: UUID, names: list[str] | None) -> list[dict]:
+def _metrics(variant_filter: VariantFilter, **report_lookup):
+    """Суммы по названиям или, если есть фильтр по цвету и размеру, по подходящим вариантам.
+
+    Без такого фильтра читаем ProductMetrics: у отчётов, загруженных до появления
+    детализации, вариантов нет.
+    """
+    if variant_filter == NO_VARIANT_FILTER:
+        return ProductMetrics.objects.filter(**report_lookup)
+    return variant_filter.apply(VariantMetrics.objects.filter(**report_lookup))
+
+
+def build_summary(
+    owner_id: UUID, names: list[str] | None, variant_filter: VariantFilter = NO_VARIANT_FILTER
+) -> list[dict]:
     """Строки сводного отчёта ИП по датам.
 
     Без фильтра отдаём готовые строки из Report. С фильтром складываем суммы
-    выбранных названий и пересчитываем показатели; реклама и хранение всегда
-    берутся полностью — они вводятся на весь отчёт.
+    выбранных названий, цветов и размеров и пересчитываем показатели; реклама
+    и хранение всегда берутся полностью — они вводятся на весь отчёт.
     """
     reports = Report.objects.filter(owner_id=owner_id)
-    if names is None:
+    if names is None and variant_filter == NO_VARIANT_FILTER:
         return list(reports.values("report_date", *SUMMARY_FIELDS))
 
+    metrics = _metrics(variant_filter, report__owner_id=owner_id)
+    if names is not None:
+        metrics = metrics.filter(name__in=names)
     totals_by_report = {
         row.pop("report_id"): BaseTotals(**row)
-        for row in ProductMetrics.objects.filter(report__owner_id=owner_id, name__in=names)
-        .values("report_id")
+        for row in metrics.values("report_id")
         .annotate(**{field: Sum(field) for field in BASE_FIELDS})
         .values("report_id", *BASE_FIELDS)
     }
@@ -185,11 +218,16 @@ def build_summary(owner_id: UUID, names: list[str] | None) -> list[dict]:
     ]
 
 
-def product_rows(owner_id: UUID, report_date: date) -> list[dict]:
+def product_rows(
+    owner_id: UUID, report_date: date, variant_filter: VariantFilter = NO_VARIANT_FILTER
+) -> list[dict]:
     """Позиции отчёта (значения «Названия»): больше продаж — выше, строка без названия — внизу."""
-    products = ProductMetrics.objects.filter(
-        report__owner_id=owner_id, report__report_date=report_date
-    ).values("name", *BASE_FIELDS)
+    products = (
+        _metrics(variant_filter, report__owner_id=owner_id, report__report_date=report_date)
+        .values("name")
+        .annotate(**{field: Sum(field) for field in BASE_FIELDS})
+        .values("name", *BASE_FIELDS)
+    )
     rows = [
         {"name": row.pop("name"), **compute_position_summary(BaseTotals(**row))} for row in products
     ]
@@ -202,10 +240,12 @@ def _variants(owner_id: UUID, report_date: date, name: str):
     )
 
 
-def color_rows(owner_id: UUID, report_date: date, name: str) -> list[dict]:
+def color_rows(
+    owner_id: UUID, report_date: date, name: str, variant_filter: VariantFilter = NO_VARIANT_FILTER
+) -> list[dict]:
     """Цвета позиции (карточки nmId), у каждого — строки по размерам."""
     colors = defaultdict(list)
-    for variant in _variants(owner_id, report_date, name):
+    for variant in variant_filter.apply(_variants(owner_id, report_date, name)):
         colors[variant.nm_id].append(variant)
 
     rows = []
@@ -227,15 +267,12 @@ def color_rows(owner_id: UUID, report_date: date, name: str) -> list[dict]:
     return sorted(rows, key=lambda row: -row["sales_sum"])
 
 
-def product_cards(owner_id: UUID, report_date: date, name: str) -> list[ProductCard]:
-    """Цвет и фото цветов позиции. Чего нет в кеше, берём из карточек WB по токену ИП.
+def _cards(owner_id: UUID, nm_ids: set[int]) -> list[ProductCard]:
+    """Цвет и фото карточек. Чего нет в кеше, берём из карточек WB по токену ИП.
 
     WB отдаёт каталог продавца целиком, поэтому кешируем все его карточки. Ненайденное
     (например, карточку из корзины WB) спросим в другой раз.
     """
-    nm_ids = set(
-        _variants(owner_id, report_date, name).filter(nm_id__gt=0).values_list("nm_id", flat=True)
-    )
     cards = list(ProductCard.objects.filter(nm_id__in=nm_ids))
     if len(cards) == len(nm_ids):
         return cards
@@ -249,12 +286,52 @@ def product_cards(owner_id: UUID, report_date: date, name: str) -> list[ProductC
     # Ту же карточку мог одновременно сохранить параллельный запрос.
     ProductCard.objects.bulk_create(
         [
-            ProductCard(nm_id=nm_id, color=card.color, photo_url=card.photo_url)
+            ProductCard(
+                nm_id=nm_id,
+                color=card.color,
+                photo_url=card.photo_url,
+                preview_url=card.preview_url,
+            )
             for nm_id, card in wb_api.fetch_cards(token).items()
         ],
         ignore_conflicts=True,
     )
     return list(ProductCard.objects.filter(nm_id__in=nm_ids))
+
+
+def product_cards(owner_id: UUID, report_date: date, name: str) -> list[ProductCard]:
+    """Цвет и фото цветов позиции."""
+    nm_ids = set(
+        _variants(owner_id, report_date, name).filter(nm_id__gt=0).values_list("nm_id", flat=True)
+    )
+    return _cards(owner_id, nm_ids)
+
+
+def _named_colors(owner_id: UUID, names: list[str] | None):
+    """Варианты выбранных названий по всем отчётам ИП. Строки без nmId цветом не считаются."""
+    variants = VariantMetrics.objects.filter(report__owner_id=owner_id, nm_id__gt=0)
+    return variants if names is None else variants.filter(name__in=names)
+
+
+def filter_colors(owner_id: UUID, names: list[str] | None) -> list[dict]:
+    """Значения фильтров: цвета выбранных названий, у каждого — его размеры."""
+    colors = {}
+    for nm_id, vendor_code, size in (
+        _named_colors(owner_id, names).values_list("nm_id", "vendor_code", "size").distinct()
+    ):
+        color = colors.setdefault(
+            nm_id, {"nm_id": nm_id, "vendor_code": vendor_code, "sizes": set()}
+        )
+        color["sizes"].add(size)
+    return [
+        {**color, "sizes": sorted(color["sizes"])}
+        for color in sorted(colors.values(), key=lambda color: color["vendor_code"])
+    ]
+
+
+def filter_cards(owner_id: UUID, names: list[str] | None) -> list[ProductCard]:
+    """Цвет и фото для значений фильтра по цветам."""
+    return _cards(owner_id, set(_named_colors(owner_id, names).values_list("nm_id", flat=True)))
 
 
 def product_names(owner_id: UUID) -> list[str]:
