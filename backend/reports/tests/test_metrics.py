@@ -1,6 +1,12 @@
 from decimal import Decimal
 
-from reports.metrics import SUMMARY_FIELDS, BaseTotals, compute_summary
+from reports.metrics import (
+    REPORT_WIDE_FIELDS,
+    SUMMARY_FIELDS,
+    BaseTotals,
+    compute_position_summary,
+    compute_summary,
+)
 
 
 def test_compute_summary_formulas():
@@ -45,3 +51,22 @@ def test_compute_summary_without_sales_returns_none_ratios():
     ):
         assert summary[field] is None
     assert summary["profit"] == Decimal("-100.00")
+
+
+def test_position_summary_has_no_ads_and_storage_and_counts_profit_before_them():
+    base = BaseTotals(
+        orders_qty=10,
+        sales_qty=4,
+        sales_sum=Decimal("1000"),
+        logistics=Decimal("200"),
+        tax_base=Decimal("1500"),
+    )
+
+    summary = compute_position_summary(base)
+
+    assert tuple(summary) == SUMMARY_FIELDS
+    assert all(summary[field] is None for field in REPORT_WIDE_FIELDS)
+    assert summary["profit"] == Decimal("800.00")
+    assert summary["profit_per_unit"] == Decimal("200.00")
+    assert summary["logistics_per_sale"] == Decimal("50.00")
+    assert summary["tax_3"] == Decimal("11.25")

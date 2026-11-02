@@ -100,3 +100,46 @@ class ProductMetrics(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name or '(без названия)'} — {self.report}"
+
+
+class VariantMetrics(models.Model):
+    """Аддитивные суммы по размеру внутри карточки (nmId = цвет). Детализация «Названия»."""
+
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="variants")
+    name = models.CharField("Название", max_length=500, blank=True)
+    nm_id = models.BigIntegerField("Код номенклатуры")
+    vendor_code = models.CharField("Артикул поставщика", max_length=255, blank=True)
+    size = models.CharField("Размер", max_length=100, blank=True)
+    orders_qty = models.IntegerField("Заказы, шт")
+    sales_qty = models.IntegerField("Продажи, шт")
+    sales_sum = money("Продажи, сумма")
+    logistics = money("Логистика")
+    tax_base = money("Сумма «Вайлдберриз реализовал Товар (Пр)»")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["report", "name", "nm_id", "vendor_code", "size"],
+                name="unique_report_variant",
+            ),
+        ]
+        verbose_name = "Показатели по размеру"
+        verbose_name_plural = "Показатели по размерам"
+
+    def __str__(self) -> str:
+        return f"{self.nm_id} {self.size} — {self.report}"
+
+
+class ProductCard(models.Model):
+    """Цвет и фото карточки WB. Кеш публичных данных витрины, общий для всех ИП."""
+
+    nm_id = models.BigIntegerField("Код номенклатуры", primary_key=True)
+    color = models.CharField("Цвет", max_length=255, blank=True)
+    photo_url = models.URLField("Фото", blank=True)
+
+    class Meta:
+        verbose_name = "Карточка товара"
+        verbose_name_plural = "Карточки товаров"
+
+    def __str__(self) -> str:
+        return f"{self.nm_id} {self.color}"

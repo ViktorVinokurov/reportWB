@@ -28,6 +28,8 @@ SUMMARY_FIELDS = (
     "tax_8",
     "tax_1",
 )
+# Реклама и хранение считаются на весь отчёт: у отдельной позиции этих показателей нет.
+REPORT_WIDE_FIELDS = ("advertising", "storage", "advertising_per_sale", "storage_per_sale")
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,3 +90,8 @@ def compute_summary(
         {field: _per(base.tax_base * rate, sales_qty) for field, rate in TAX_RATES.items()}
     )
     return summary
+
+
+def compute_position_summary(base: BaseTotals) -> dict[str, int | Decimal | None]:
+    """Строка позиции внутри отчёта. Реклама и хранение не делятся, прибыль считается до них."""
+    return {**compute_summary(base, ZERO, ZERO), **dict.fromkeys(REPORT_WIDE_FIELDS)}

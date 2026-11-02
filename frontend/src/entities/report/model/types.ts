@@ -21,3 +21,29 @@ export interface SummaryRow {
 }
 
 export type MetricKey = Exclude<keyof SummaryRow, "report_date">;
+
+/** Значения колонок таблицы. У позиции внутри отчёта реклама и хранение — null: они на весь отчёт. */
+export type MetricValues = Record<MetricKey, number | null>;
+
+/** Позиция отчёта — значение колонки «Название». Контракт GET /api/reports/<дата>/products. */
+export interface ProductRow extends MetricValues {
+  name: string;
+}
+
+export interface SizeRow extends MetricValues {
+  size: string;
+}
+
+/** Цвет позиции — одна карточка WB. Контракт GET /api/reports/<дата>/colors. */
+export interface ColorRow extends MetricValues {
+  nm_id: number;
+  vendor_code: string;
+  sizes: SizeRow[];
+}
+
+/** Цвет и фото из карточки WB. Контракт GET /api/reports/<дата>/cards. */
+export interface ProductCard {
+  nm_id: number;
+  color: string;
+  photo_url: string;
+}

@@ -2,7 +2,7 @@ from datetime import date
 
 from rest_framework import serializers
 
-from .models import Owner
+from .models import Owner, ProductCard
 
 
 def _money(**kwargs) -> serializers.DecimalField:
@@ -34,6 +34,10 @@ class OwnerTokenSerializer(serializers.ModelSerializer):
 
 class OwnerQuerySerializer(serializers.Serializer):
     owner_id = serializers.UUIDField()
+
+
+class ProductQuerySerializer(OwnerQuerySerializer):
+    name = serializers.CharField()
 
 
 class ReportUploadSerializer(serializers.Serializer):
@@ -104,6 +108,34 @@ class SummaryRowSerializer(serializers.Serializer):
     tax_3 = _money(allow_null=True)
     tax_8 = _money(allow_null=True)
     tax_1 = _money(allow_null=True)
+
+
+class PositionMetricsSerializer(SummaryRowSerializer):
+    """Показатели позиции внутри отчёта: реклама и хранение на весь отчёт, у позиции их нет."""
+
+    report_date = None
+    advertising = _money(allow_null=True)
+    storage = _money(allow_null=True)
+
+
+class ProductRowSerializer(PositionMetricsSerializer):
+    name = serializers.CharField()
+
+
+class SizeRowSerializer(PositionMetricsSerializer):
+    size = serializers.CharField()
+
+
+class ColorRowSerializer(PositionMetricsSerializer):
+    nm_id = serializers.IntegerField()
+    vendor_code = serializers.CharField()
+    sizes = SizeRowSerializer(many=True)
+
+
+class ProductCardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductCard
+        fields = ["nm_id", "color", "photo_url"]
 
 
 class WbImportResultSerializer(serializers.Serializer):

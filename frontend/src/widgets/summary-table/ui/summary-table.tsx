@@ -3,12 +3,11 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { METRICS, type SummaryRow } from "@/entities/report";
+import { MetricCells, MetricHeads, METRICS, type SummaryRow } from "@/entities/report";
 import { DeleteReportButton } from "@/features/delete-report";
 import { selectHiddenColumns, TableColumnsMenu } from "@/features/toggle-table-columns";
-import { formatIsoDate, formatNumber } from "@/shared/lib/format";
+import { formatIsoDate } from "@/shared/lib/format";
 import { useAppSelector } from "@/shared/lib/store";
-import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 import {
   Card,
@@ -30,7 +29,13 @@ import {
 const stickyCell = "sticky left-0 z-10 bg-card";
 const PAGE_SIZE = 10;
 
-export function SummaryTable({ ownerId, rows }: { ownerId: string; rows: SummaryRow[] }) {
+interface SummaryTableProps {
+  ownerId: string;
+  rows: SummaryRow[];
+  onOpenReport: (reportDate: string) => void;
+}
+
+export function SummaryTable({ ownerId, rows, onOpenReport }: SummaryTableProps) {
   const hiddenColumns = useAppSelector(selectHiddenColumns);
   const columns = METRICS.filter((metric) => !hiddenColumns.includes(metric.key));
 
@@ -59,11 +64,7 @@ export function SummaryTable({ ownerId, rows }: { ownerId: string; rows: Summary
           <TableHeader>
             <TableRow>
               <TableHead className={stickyCell}>Дата</TableHead>
-              {columns.map((metric) => (
-                <TableHead key={metric.key} className="text-right whitespace-normal">
-                  {metric.label}
-                </TableHead>
-              ))}
+              <MetricHeads columns={columns} />
               <TableHead className="w-10">
                 <span className="sr-only">Действия</span>
               </TableHead>
@@ -71,25 +72,20 @@ export function SummaryTable({ ownerId, rows }: { ownerId: string; rows: Summary
           </TableHeader>
           <TableBody>
             {pageRows.map((row) => (
-              <TableRow key={row.report_date}>
-                <TableCell className={cn(stickyCell, "font-medium")}>
-                  {formatIsoDate(row.report_date)}
+              <TableRow
+                key={row.report_date}
+                className="cursor-pointer"
+                onClick={() => onOpenReport(row.report_date)}
+              >
+                <TableCell className={stickyCell}>
+                  {/* Клик всплывает к строке; кнопка нужна для фокуса с клавиатуры. */}
+                  <button type="button" className="font-medium hover:underline">
+                    {formatIsoDate(row.report_date)}
+                  </button>
                 </TableCell>
-                {columns.map((metric) => {
-                  const value = row[metric.key];
-                  return (
-                    <TableCell
-                      key={metric.key}
-                      className={cn(
-                        "text-right tabular-nums",
-                        metric.signed && value !== null && value < 0 && "text-destructive",
-                      )}
-                    >
-                      {formatNumber(value, metric.kind)}
-                    </TableCell>
-                  );
-                })}
-                <TableCell className="py-0">
+                <MetricCells columns={columns} row={row} />
+                {/* Диалог удаления — портал, но его клики всплывают по дереву React до строки. */}
+                <TableCell className="py-0" onClick={(event) => event.stopPropagation()}>
                   <DeleteReportButton ownerId={ownerId} reportDate={row.report_date} />
                 </TableCell>
               </TableRow>

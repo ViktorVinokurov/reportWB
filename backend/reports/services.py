@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -7,9 +8,9 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Sum
 
-from . import wb_api
-from .metrics import SUMMARY_FIELDS, BaseTotals, compute_summary
-from .models import Owner, ProductMetrics, Report
+from . import wb_api, wb_cards
+from .metrics import SUMMARY_FIELDS, BaseTotals, compute_position_summary, compute_summary
+from .models import Owner, ProductCard, ProductMetrics, Report, VariantMetrics
 from .parser import (
     ParsedReport,
     ReportParseError,
@@ -17,6 +18,8 @@ from .parser import (
     parse_api_rows,
     parse_report,
 )
+
+logger = logging.getLogger(__name__)
 
 BASE_FIELDS = ("orders_qty", "sales_qty", "sales_sum", "logistics", "tax_base")
 # Неделя отчёта WB — с понедельника по воскресенье.
@@ -58,6 +61,19 @@ def _save_parsed(
     ProductMetrics.objects.bulk_create(
         ProductMetrics(report=report, name=name, **{f: getattr(totals, f) for f in BASE_FIELDS})
         for name, totals in parsed.products.items()
+    )
+    VariantMetrics.objects.bulk_create(
+        VariantMetrics(
+            report=report,
+            name=variant.name,
+            nm_id=variant.nm_id,
+            vendor_code=variant.vendor_code,
+            size=variant.size,
+            **{f: getattr(totals, f) for f in BASE_FIELDS},
+        )
+        for variant, totals in parsed.variants.items()
+        # Возмещения издержек, хранение и т. п.: строки без размера с нулевыми суммами.
+        if totals != BaseTotals()
     )
     return report
 
@@ -163,6 +179,70 @@ def build_summary(owner_id: UUID, names: list[str] | None) -> list[dict]:
         }
         for report in reports.only("id", "report_date", "advertising", "storage")
     ]
+
+
+def product_rows(owner_id: UUID, report_date: date) -> list[dict]:
+    """Позиции отчёта (значения «Названия»): больше продаж — выше, строка без названия — внизу."""
+    products = ProductMetrics.objects.filter(
+        report__owner_id=owner_id, report__report_date=report_date
+    ).values("name", *BASE_FIELDS)
+    rows = [
+        {"name": row.pop("name"), **compute_position_summary(BaseTotals(**row))} for row in products
+    ]
+    return sorted(rows, key=lambda row: (not row["name"], -row["sales_sum"]))
+
+
+def _variants(owner_id: UUID, report_date: date, name: str):
+    return VariantMetrics.objects.filter(
+        report__owner_id=owner_id, report__report_date=report_date, name=name
+    )
+
+
+def color_rows(owner_id: UUID, report_date: date, name: str) -> list[dict]:
+    """Цвета позиции (карточки nmId), у каждого — строки по размерам."""
+    colors = defaultdict(list)
+    for variant in _variants(owner_id, report_date, name):
+        colors[variant.nm_id].append(variant)
+
+    rows = []
+    for nm_id, variants in colors.items():
+        sizes = defaultdict(BaseTotals)
+        for variant in variants:
+            sizes[variant.size] += BaseTotals(**{f: getattr(variant, f) for f in BASE_FIELDS})
+        rows.append(
+            {
+                "nm_id": nm_id,
+                "vendor_code": variants[0].vendor_code,
+                **compute_position_summary(sum(sizes.values(), BaseTotals())),
+                "sizes": [
+                    {"size": size, **compute_position_summary(sizes[size])}
+                    for size in sorted(sizes)
+                ],
+            }
+        )
+    return sorted(rows, key=lambda row: -row["sales_sum"])
+
+
+def product_cards(owner_id: UUID, report_date: date, name: str) -> list[ProductCard]:
+    """Цвет и фото цветов позиции. Чего нет в кеше, берём у WB; ненайденное спросим в другой раз."""
+    nm_ids = set(
+        _variants(owner_id, report_date, name).filter(nm_id__gt=0).values_list("nm_id", flat=True)
+    )
+    cards = list(ProductCard.objects.filter(nm_id__in=nm_ids))
+    missing = nm_ids - {card.nm_id for card in cards}
+    if not missing:
+        return cards
+
+    fetched = wb_cards.fetch_cards(missing)
+    if not_found := missing - fetched.keys():
+        logger.warning("Не найдены карточки WB: %s", sorted(not_found))
+    new_cards = [
+        ProductCard(nm_id=nm_id, color=card.color, photo_url=card.photo_url)
+        for nm_id, card in fetched.items()
+    ]
+    # Ту же карточку мог одновременно сохранить параллельный запрос.
+    ProductCard.objects.bulk_create(new_cards, ignore_conflicts=True)
+    return cards + new_cards
 
 
 def product_names(owner_id: UUID) -> list[str]:

@@ -5,7 +5,10 @@ from .views import (
     OwnerListView,
     OwnerTokenView,
     ProductNamesView,
+    ReportCardsView,
+    ReportColorsView,
     ReportDetailView,
+    ReportProductsView,
     ReportUploadView,
     SummaryView,
     WbImportView,
@@ -23,4 +26,11 @@ urlpatterns = [
     path("reports/summary", SummaryView.as_view(), name="report-summary"),
     path("reports/product-names", ProductNamesView.as_view(), name="report-product-names"),
     path("reports/<isodate:report_date>", ReportDetailView.as_view(), name="report-detail"),
+    path(
+        "reports/<isodate:report_date>/products",
+        ReportProductsView.as_view(),
+        name="report-products",
+    ),
+    path("reports/<isodate:report_date>/colors", ReportColorsView.as_view(), name="report-colors"),
+    path("reports/<isodate:report_date>/cards", ReportCardsView.as_view(), name="report-cards"),
 ]

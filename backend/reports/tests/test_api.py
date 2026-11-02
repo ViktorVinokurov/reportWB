@@ -4,8 +4,8 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
-from reports import wb_api
-from reports.models import Owner, ProductMetrics, Report
+from reports import wb_api, wb_cards
+from reports.models import Owner, ProductCard, ProductMetrics, Report, VariantMetrics
 
 pytestmark = pytest.mark.django_db
 
@@ -349,7 +349,15 @@ def test_delete_missing_report_returns_404(client, owner, report_date):
 
 
 @pytest.mark.parametrize(
-    "url", ["/api/reports/summary", "/api/reports/product-names", "/api/reports/2026-10-25"]
+    "url",
+    [
+        "/api/reports/summary",
+        "/api/reports/product-names",
+        "/api/reports/2026-10-25",
+        "/api/reports/2026-10-25/products",
+        "/api/reports/2026-10-25/colors",
+        "/api/reports/2026-10-25/cards",
+    ],
 )
 @pytest.mark.parametrize("query", ["", "?owner_id=not-a-uuid"])
 def test_owner_id_is_required(client, url, query):
@@ -393,3 +401,122 @@ def test_summary_filter_by_names_keeps_full_ads_and_storage(client, owner, sampl
     assert one["advertising"] == 1000
     assert one["storage"] == 500
     assert one["profit"] == round(one["sales_sum"] - one["logistics"] - 1000 - 500, 2)
+
+
+SWIMSUIT = "Слитный купальник"
+REPORT_WIDE = ("advertising", "storage", "advertising_per_sale", "storage_per_sale")
+
+
+def report_part(client, owner, part, **params):
+    url = f"/api/reports/2026-10-25/{part}"
+    return client.get(url, {"owner_id": str(owner.id), **params})
+
+
+def test_products_add_up_to_report_without_ads_and_storage(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+
+    rows = report_part(client, owner, "products").json()
+
+    total = summary(client, owner).json()[0]
+    for field in ("orders_qty", "sales_qty"):
+        assert sum(row[field] for row in rows) == total[field]
+    for field in ("sales_sum", "logistics"):
+        assert round(sum(row[field] for row in rows), 2) == total[field]
+    # Прибыль позиций до рекламы и хранения: вместе с ними сходится с прибылью отчёта.
+    assert round(sum(row["profit"] for row in rows) - 1000 - 500, 2) == total["profit"]
+    assert all(row[field] is None for row in rows for field in REPORT_WIDE)
+
+    # Больше продаж — выше, строка без названия — внизу.
+    sums = [row["sales_sum"] for row in rows[:-1]]
+    assert sums == sorted(sums, reverse=True)
+    assert rows[-1]["name"] == ""
+
+
+def test_products_of_missing_report_return_404(client, owner):
+    assert report_part(client, owner, "products").status_code == 404
+
+
+def test_colors_split_position_by_nm_id_and_size(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+
+    colors = report_part(client, owner, "colors", name=SWIMSUIT).json()
+
+    position = next(
+        row for row in report_part(client, owner, "products").json() if row["name"] == SWIMSUIT
+    )
+    assert {color["nm_id"] for color in colors} == {
+        578832269,
+        578842131,
+        668553020,
+        846318855,
+        846318856,
+    }
+    assert sum(color["orders_qty"] for color in colors) == position["orders_qty"]
+    assert sum(color["sales_qty"] for color in colors) == position["sales_qty"]
+    assert round(sum(color["sales_sum"] for color in colors), 2) == position["sales_sum"]
+    assert round(sum(color["logistics"] for color in colors), 2) == position["logistics"]
+
+    black = next(color for color in colors if color["nm_id"] == 578842131)
+    assert black["vendor_code"] == "слитный-черный"
+    assert [size["size"] for size in black["sizes"]] == ["M-L", "XS-S"]
+    assert sum(size["logistics"] for size in black["sizes"]) == pytest.approx(black["logistics"])
+    assert all(black[field] is None for field in REPORT_WIDE)
+
+
+def test_colors_are_scoped_by_owner(client, owner, other_owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+
+    assert report_part(client, other_owner, "colors", name=SWIMSUIT).json() == []
+
+
+def test_reupload_replaces_variants(client, owner, sample_report_path):
+    upload(client, owner, sample_report_path)
+    count = VariantMetrics.objects.count()
+
+    upload(client, owner, sample_report_path)
+
+    assert VariantMetrics.objects.count() == count
+
+
+def test_cards_are_fetched_once_and_cached(client, owner, sample_report_path, monkeypatch):
+    upload(client, owner, sample_report_path)
+    requested = []
+
+    def fake_fetch(nm_ids):
+        requested.append(nm_ids)
+        return {nm_id: wb_cards.WbCard("черный", f"https://cdn/{nm_id}.webp") for nm_id in nm_ids}
+
+    monkeypatch.setattr(wb_cards, "fetch_cards", fake_fetch)
+
+    first = report_part(client, owner, "cards", name=SWIMSUIT).json()
+    second = report_part(client, owner, "cards", name=SWIMSUIT).json()
+
+    assert len(requested) == 1
+    assert len(first) == len(requested[0]) == 5
+    assert {card["nm_id"] for card in second} == {card["nm_id"] for card in first}
+    assert {"nm_id": 578842131, "color": "черный", "photo_url": "https://cdn/578842131.webp"} in (
+        first
+    )
+
+
+def test_cards_not_found_are_skipped_and_retried(client, owner, sample_report_path, monkeypatch):
+    upload(client, owner, sample_report_path)
+    monkeypatch.setattr(wb_cards, "fetch_cards", lambda nm_ids: {})
+
+    response = report_part(client, owner, "cards", name=SWIMSUIT)
+
+    assert response.status_code == 200
+    assert response.json() == []
+    assert ProductCard.objects.count() == 0
+
+
+def test_fetch_cards_finds_basket_host_and_reads_color(monkeypatch):
+    base = "https://basket-16.wbbasket.ru/vol2595/part259536/259536935"
+    responses = {
+        f"{base}/info/ru/card.json": {"nm_colors_names": "черный", "media": {"photo_count": 10}},
+    }
+    monkeypatch.setattr(wb_cards, "_get_json", responses.get)
+
+    cards = wb_cards.fetch_cards({259536935, 1})
+
+    assert cards == {259536935: wb_cards.WbCard("черный", f"{base}/images/c246x328/1.webp")}

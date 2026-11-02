@@ -4,7 +4,13 @@ from decimal import Decimal
 import pytest
 from openpyxl import Workbook
 
-from reports.parser import ReportParseError, parse_api_costs, parse_api_rows, parse_report
+from reports.parser import (
+    ReportParseError,
+    Variant,
+    parse_api_costs,
+    parse_api_rows,
+    parse_report,
+)
 
 
 def _xlsx(rows: list[list]) -> io.BytesIO:
@@ -25,6 +31,9 @@ HEADER = [
     "К перечислению Продавцу за реализованный Товар",
     "Услуги по доставке товара покупателю",
     "Виды доставок, штрафов и корректировок ВВ",
+    "Код номенклатуры",
+    "Артикул поставщика",
+    "Размер",
 ]
 
 
@@ -70,11 +79,33 @@ def test_parse_counts_orders_and_sales_by_rules():
 
 def test_parse_finds_columns_by_header_not_position():
     reordered = list(reversed(HEADER))
-    row = list(reversed(["A", "Продажа", 1, 100, 90, 0, "К клиенту при продаже"]))
+    row = list(reversed(["A", "Продажа", 1, 100, 90, 0, "К клиенту при продаже", 7, "a-1", "S"]))
 
     parsed = parse_report(_xlsx([reordered, row]))
 
     assert parsed.total.sales_sum == Decimal("90")
+    assert list(parsed.variants) == [Variant("A", 7, "a-1", "S")]
+
+
+def test_parse_splits_one_name_by_color_and_size():
+    file = _xlsx(
+        [
+            HEADER,
+            ["A", "Продажа", 1, 100, 90, 0, "К клиенту при продаже", 1, " a-1 ", "S"],
+            ["A", "Продажа", 1, 100, 90, 0, "К клиенту при продаже", 1, " a-1 ", "M"],
+            ["A", "Продажа", 1, 100, 90, 0, "К клиенту при продаже", 1, " a-1 ", "M"],
+            ["A", "Продажа", 1, 100, 90, 0, "К клиенту при продаже", 2, "a-2", "S"],
+        ]
+    )
+
+    parsed = parse_report(file)
+
+    assert {variant: totals.sales_qty for variant, totals in parsed.variants.items()} == {
+        Variant("A", 1, "a-1", "S"): 1,
+        Variant("A", 1, "a-1", "M"): 2,
+        Variant("A", 2, "a-2", "S"): 1,
+    }
+    assert parsed.products["A"].sales_qty == 4
 
 
 def test_parse_reports_missing_columns():
