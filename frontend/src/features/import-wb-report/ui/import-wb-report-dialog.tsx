@@ -118,8 +118,12 @@ export function ImportWbReportDialog({ defaultOwnerId }: { defaultOwnerId?: stri
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline">
-          <CloudDownloadIcon /> Загрузить из WB
+        <Button
+          variant="outline"
+          aria-label="Загрузить из WB"
+          className="max-md:w-9 max-md:has-[>svg]:px-0"
+        >
+          <CloudDownloadIcon /> <span className="max-md:hidden">Загрузить из WB</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -163,7 +167,8 @@ export function ImportWbReportDialog({ defaultOwnerId }: { defaultOwnerId?: stri
               <span>Недели</span>
               <span>Реклама</span>
             </div>
-            <div className="grid max-h-80 gap-1 overflow-y-auto rounded-md border p-1">
+            {/* relative: скрытые input чекбоксов позиционируются по списку и не растягивают прокрутку диалога. */}
+            <div className="relative grid max-h-80 gap-1 overflow-y-auto rounded-md border p-1">
               {fields.map((field, index) => {
                 const selected = weeks[index]?.selected ?? false;
                 const reportDate = reportDateOf(field.dateFrom);

@@ -8,7 +8,7 @@ import type { MetricValues } from "../model/types";
 /** Заголовки колонок показателей — общие для сводной таблицы и детализации отчёта. */
 export function MetricHeads({ columns }: { columns: readonly MetricDefinition[] }) {
   return columns.map((metric) => (
-    <TableHead key={metric.key} className="text-right whitespace-normal">
+    <TableHead key={metric.key} className="text-right whitespace-normal max-sm:min-w-24">
       {metric.label}
     </TableHead>
   ));

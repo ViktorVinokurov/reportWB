@@ -1,5 +1,5 @@
 import { ImageOffIcon } from "lucide-react";
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 
 import {
   formatSize,
@@ -29,6 +29,7 @@ import { stickyCell } from "./sticky-cell";
 const photoBox = "h-12 w-9 shrink-0 rounded";
 
 function ColorPhoto({ card, isLoading }: { card?: ProductCard; isLoading: boolean }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
   if (isLoading) return <div className={cn(photoBox, "animate-pulse bg-muted")} />;
   if (!card?.photo_url) {
     return (
@@ -40,12 +41,14 @@ function ColorPhoto({ card, isLoading }: { card?: ProductCard; isLoading: boolea
   // Фото WB уже нужных размеров и грузятся браузером напрямую: next/image здесь не нужен.
   /* eslint-disable @next/next/no-img-element */
   return (
-    <HoverCard openDelay={100} closeDelay={0}>
+    <HoverCard open={previewOpen} onOpenChange={setPreviewOpen} openDelay={100} closeDelay={0}>
       <HoverCardTrigger asChild>
+        {/* На тач-экране наведения нет: большое фото открывается по тапу. */}
         <img
           src={card.photo_url}
           alt={card.color}
           loading="lazy"
+          onClick={() => setPreviewOpen(true)}
           className={cn(photoBox, "bg-muted object-cover")}
         />
       </HoverCardTrigger>

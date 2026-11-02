@@ -16,7 +16,11 @@ export function SettingsMenu({ ownerId }: { ownerId: string | undefined }) {
           <SettingsIcon />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="grid w-80 gap-4">
+      <PopoverContent
+        align="end"
+        collisionPadding={16}
+        className="grid w-80 max-w-[calc(100vw-2rem)] gap-4"
+      >
         <CreateOwnerForm />
         <Separator />
         {/* key: при смене ИП форма токена начинается с чистого поля. */}

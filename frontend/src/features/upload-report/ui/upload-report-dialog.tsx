@@ -79,8 +79,8 @@ export function UploadReportDialog({ defaultOwnerId }: { defaultOwnerId?: string
       }}
     >
       <DialogTrigger asChild>
-        <Button>
-          <UploadIcon /> Загрузить отчёт
+        <Button aria-label="Загрузить отчёт" className="max-md:w-9 max-md:has-[>svg]:px-0">
+          <UploadIcon /> <span className="max-md:hidden">Загрузить отчёт</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">

@@ -13,6 +13,7 @@ export function OwnerSwitcher({ onOwnerChange }: { onOwnerChange?: (ownerId: str
   return (
     <OwnerSelect
       value={ownerId}
+      className="w-full sm:w-fit"
       onValueChange={(next) => {
         dispatch(ownerSelected(next));
         onOwnerChange?.(next);

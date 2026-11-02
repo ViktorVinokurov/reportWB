@@ -26,7 +26,9 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 
-const stickyCell = "sticky left-0 z-10 bg-card";
+// Разделитель — псевдоэлемент: при border-collapse граница и тень ячейки не едут вместе со sticky.
+const stickyCell =
+  "sticky left-0 z-10 bg-card max-md:after:absolute max-md:after:inset-y-0 max-md:after:right-0 max-md:after:w-px max-md:after:bg-border";
 const PAGE_SIZE = 10;
 
 interface SummaryTableProps {

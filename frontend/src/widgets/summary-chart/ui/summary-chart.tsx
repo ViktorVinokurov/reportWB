@@ -35,7 +35,7 @@ export function SummaryChart({ rows }: { rows: SummaryRow[] }) {
     <Card>
       <CardHeader>
         <CardTitle>Динамика показателей</CardTitle>
-        <CardAction className="flex gap-2">
+        <CardAction className="flex flex-wrap justify-end gap-2">
           <ChartDatesMenu dates={rows.map((row) => row.report_date)} />
           <ChartSeriesMenu />
         </CardAction>

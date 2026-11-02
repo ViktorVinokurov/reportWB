@@ -58,15 +58,25 @@ export function CheckboxFilter<T extends string | number>({
   return (
     <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="min-w-56 justify-between" disabled={disabled}>
-          {selected === null
-            ? allLabel
-            : // Считаем по актуальному списку: после удаления отчёта в выборе могут остаться пропавшие значения.
-              `${countLabel}: ${options.filter((option) => isChecked(option.value)).length} из ${options.length}`}
+        <Button
+          variant="outline"
+          className="w-full justify-between sm:w-auto sm:min-w-56"
+          disabled={disabled}
+        >
+          <span className="truncate">
+            {selected === null
+              ? allLabel
+              : // Считаем по актуальному списку: после удаления отчёта в выборе могут остаться пропавшие значения.
+                `${countLabel}: ${options.filter((option) => isChecked(option.value)).length} из ${options.length}`}
+          </span>
           <ChevronsUpDownIcon className="text-muted-foreground" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0">
+      <PopoverContent
+        align="start"
+        collisionPadding={16}
+        className="w-80 max-w-[calc(100vw-2rem)] p-0"
+      >
         <div className="flex items-center justify-between px-3 py-2">
           <span className="text-sm font-medium">{title}</span>
           <div className="flex gap-1">
@@ -87,14 +97,17 @@ export function CheckboxFilter<T extends string | number>({
           {options.map((option, index) => (
             <li
               key={option.value}
-              className="flex items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent"
+              className="flex items-center gap-2 rounded-sm px-2 hover:bg-accent"
             >
               <Checkbox
                 id={`${id}-${index}`}
                 checked={isChecked(option.value)}
                 onCheckedChange={() => toggle(option.value)}
               />
-              <Label htmlFor={`${id}-${index}`} className="flex-1 cursor-pointer font-normal">
+              <Label
+                htmlFor={`${id}-${index}`}
+                className="flex-1 cursor-pointer py-2.5 font-normal sm:py-1.5"
+              >
                 {option.label}
                 {option.hint && (
                   <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>

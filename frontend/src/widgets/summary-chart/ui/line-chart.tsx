@@ -28,6 +28,8 @@ export default function LineChart({ rows, metrics }: LineChartProps) {
     // Даты отчётов без времени — показываем их в UTC, чтобы не съезжал день.
     root.utc = true;
     root.numberFormatter.set("numberFormat", "#,###.##");
+    // На тач-экране жесты по графику работают после тапа, иначе он перехватывает прокрутку страницы.
+    root.tapToActivate = true;
     root.setThemes(
       resolvedTheme === "dark"
         ? [am5themes_Animated.new(root), am5themes_Dark.new(root)]
@@ -44,8 +46,9 @@ export default function LineChart({ rows, metrics }: LineChartProps) {
       }),
     );
     // Зум по X: выделение диапазона мышью или ползунки скроллбара; колесо не трогаем,
-    // чтобы не мешать прокрутке страницы.
-    chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "zoomX" }));
+    // чтобы не мешать прокрутке страницы. Пальцем выделять нельзя: свайп по графику — это прокрутка.
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    chart.set("cursor", am5xy.XYCursor.new(root, { behavior: isTouch ? "none" : "zoomX" }));
 
     const xAxis = chart.xAxes.push(
       am5xy.DateAxis.new(root, {
@@ -57,6 +60,12 @@ export default function LineChart({ rows, metrics }: LineChartProps) {
     const yAxis = chart.yAxes.push(
       am5xy.ValueAxis.new(root, { renderer: am5xy.AxisRendererY.new(root, {}) }),
     );
+
+    // На телефоне мельче: иначе подписи дат наезжают друг на друга при зуме.
+    if (containerRef.current.offsetWidth < 500) {
+      xAxis.get("renderer").labels.template.set("fontSize", 12);
+      yAxis.get("renderer").labels.template.set("fontSize", 12);
+    }
 
     const scrollbarX = am5.Scrollbar.new(root, { orientation: "horizontal", marginTop: 12 });
     chart.set("scrollbarX", scrollbarX);
@@ -87,10 +96,22 @@ export default function LineChart({ rows, metrics }: LineChartProps) {
     const legend = chart.children.push(
       am5.Legend.new(root, { centerX: am5.p50, x: am5.p50, layout: root.gridLayout }),
     );
+    // Подпись шире контейнера ломает сетку легенды (пропадают маркеры): длинные переносим.
+    legend.labels.template.setAll({
+      oversizedBehavior: "wrap",
+      maxWidth: containerRef.current.offsetWidth - 90,
+    });
     legend.data.setAll(chart.series.values);
 
     return () => root.dispose();
   }, [rows, metrics, resolvedTheme]);
 
-  return <div ref={containerRef} className="h-[420px] w-full" />;
+  // На телефоне легенда встаёт в одну колонку: высота растёт с числом серий, чтобы не сжимать график.
+  return (
+    <div
+      ref={containerRef}
+      style={{ "--series-count": metrics.length } as React.CSSProperties}
+      className="h-[420px] w-full max-sm:h-[calc(320px+var(--series-count)*32px)]"
+    />
+  );
 }

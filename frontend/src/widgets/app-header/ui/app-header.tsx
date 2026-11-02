@@ -13,8 +13,8 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-4 sm:px-6">
-        <h1 className="text-lg font-semibold">Сводный отчёт WB</h1>
-        <div className="flex items-center gap-2">
+        <h1 className="min-w-0 truncate text-base font-semibold sm:text-lg">Сводный отчёт WB</h1>
+        <div className="flex shrink-0 items-center gap-2">
           <ImportWbReportDialog defaultOwnerId={ownerId} />
           <UploadReportDialog defaultOwnerId={ownerId} />
           <ThemeToggle />

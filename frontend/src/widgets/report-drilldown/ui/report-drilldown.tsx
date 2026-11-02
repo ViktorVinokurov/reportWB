@@ -106,7 +106,7 @@ export function ReportDrilldown({ ownerId, summary, onBack }: ReportDrilldownPro
           <TableColumnsMenu />
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-3">{content}</CardContent>
+      <CardContent className="grid grid-cols-1 gap-3">{content}</CardContent>
     </Card>
   );
 }

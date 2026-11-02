@@ -46,7 +46,7 @@ export function ProductsTable({ products, summary, columns, onOpen }: ProductsTa
               >
                 <TableCell className={stickyCell}>
                   {/* Клик всплывает к строке; кнопка нужна для фокуса с клавиатуры. */}
-                  <button type="button" className="font-medium hover:underline">
+                  <button type="button" className="text-left font-medium hover:underline">
                     {product.name}
                   </button>
                 </TableCell>

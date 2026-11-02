@@ -88,9 +88,11 @@ export function ReportSummaryPage() {
   return (
     <>
       <AppHeader />
-      <main className="mx-auto grid w-full max-w-screen-2xl gap-6 px-4 py-6 sm:px-6">
+      {/* grid-cols-1: без него колонка сетки растягивается по ширине таблицы, и скроллится вся страница. */}
+      <main className="mx-auto grid w-full max-w-screen-2xl grid-cols-1 gap-4 px-4 py-4 sm:gap-6 sm:px-6 sm:py-6">
         {ownerId && (
-          <div className="flex flex-wrap items-center gap-3">
+          // На телефоне ИП и название занимают всю строку, цвет и размер делят следующую пополам.
+          <div className="grid grid-cols-2 gap-2 *:nth-[-n+2]:col-span-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             {/* У другого ИП свои названия и отчёты — фильтры сбрасываем на «все», детализацию закрываем. */}
             <OwnerSwitcher
               onOwnerChange={() => {
